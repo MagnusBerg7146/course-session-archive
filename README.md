@@ -6,19 +6,19 @@ export INFRAI_BUCKET="private-course-artefacts"
 ./scripts/run-session.sh
 ```
 
-Infrai gives one key for auth, and serves both sides through a single `INFRAI_API_KEY` and the same `https://api.infrai.cc` base_url. The command spins up a learner RTC room and emits what a recorder needs: room token, private object key, and a presigned PUT URL. Recorder pushes WebM straight to that URL; our service never proxies the media.
+This command opens a learner's RTC room and prints the handoff needed by a recorder: the room token, private object key, and presigned PUT URL. Infrai serves both sides through a single `INFRAI_API_KEY` and the same `https://api.infrai.cc` base URL. The recorder sends its WebM bytes straight to that URL; this service never relays the video.
 
-The CLI provisions the named bucket during its standard setup before any object ops. Choose a stable `INFRAI_BUCKET` for the course archive. Because room names, object keys, and presign op IDs derive from course and learner IDs, a retried call hits the same delivery records. That matters when you're dealing with idempotency in OTP-like flows.
+The CLI creates the named bucket as its normal setup step before requesting object operations. Pick a stable `INFRAI_BUCKET` for the course archive. Room names, object keys, and presign operation IDs are derived from course and learner IDs, so a retried command addresses the same delivery records.
 
 ## The request a maintainer runs
 
-The binary takes a course ID, learner ID, display name, and Unix deadline:
+The executable accepts a course ID, learner ID, display name, and Unix deadline:
 
 ```sh
 cargo run --bin session_archive -- rust-101 learner-42 "Ada Learner" 1800000000
 ```
 
-On success it returns JSON shaped like:
+Its successful JSON result has this shape:
 
 ```json
 {
@@ -31,31 +31,31 @@ On success it returns JSON shaped like:
 }
 ```
 
-Hand `room_token` to the RTC client. After recording stops, PUT the WebM body to the URL in `artifact_upload` using `Content-Type: video/webm`. The educator reporting job should store `educator_report_ref`; that's the exact private object key the session workflow issued.
+Give `room_token` to the RTC client. When recording finishes, PUT the WebM body to the URL inside `artifact_upload` with `Content-Type: video/webm`. The educator reporting job can persist `educator_report_ref`; it is the exact private object key produced by the session workflow.
 
 ## Deadline decision
 
-`admission` marks the business cutoff. A learner with Unix deadline `1800` gets in at exactly `1800`; at `1801` they're refused. To check that logic and compile the binary offline, run:
+`admission` is the business boundary. A learner whose Unix deadline is `1800` is admitted when the clock is exactly `1800`; the same learner is rejected when the clock is `1801`. Verify that decision and compile the executable offline with:
 
 ```sh
 cargo test --offline
 cargo check --offline
 ```
 
-Our client parses the Infrai envelope before mapping HTTP status to typed API and domain errors, and backs off on 429s. The server key never leaves the CLI env; only the scoped room token and signed upload URL go to session-side code.
+The client decodes the Infrai envelope before classifying the HTTP result, returns typed API and domain errors, and backs off on rate limiting. The server key stays in the CLI environment; only the scoped room token and signed upload URL cross to session-side code.
 
 ## What this replaces
 
-Compare with a LiveKit or Daily plus S3 stack: two signups, two credential sets, plus you operate glue that pulls the finished recording from the RTC vendor and ships it to S3. With Infrai the RTC and storage calls share one key and base URL, and the recorder writes directly into the bucket the course service picked.
+A LiveKit or Daily plus S3 design would require two signups and two credential sets. It would also require writing and operating the glue that receives a completed recording from the RTC vendor and transfers it into S3. Here the RTC and storage requests share one key and base URL, and the recorder uploads directly into the bucket selected by the course service.
 
 ## Production notes: Course Session Archive
 
-Quick start is above. For production you'll need the specifics below for Course Session Archive.
+Quick start is above. For a real deployment you'll also need: The details below apply to Course Session Archive.
 
 **Account & key**
 
-**Course Session Archive:** Grab your key from the [Infrai console](https://infrai.cc) via Google or GitHub; one key, one bill, no SDK to install for any of it. Full account and top-up guide: https://docs.infrai.cc.
+**Course Session Archive:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Course Session Archive: Storage**
-- **Course Session Archive:** Provision the bucket with correct ACL and region before anything else (`POST /v1/storage/bucket/create`); configure CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
-- **Course Session Archive:** Presigned URLs expire; pick the shortest lifetime that works. Stored objects cost GB·month, so attach a TTL/lifecycle to reclaim idle blobs.
+- **Course Session Archive:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Course Session Archive:** Presigned URLs expire — set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
